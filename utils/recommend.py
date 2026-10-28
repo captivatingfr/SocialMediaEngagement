@@ -1,7 +1,5 @@
 import itertools
-
 import pandas as pd
-
 from utils.config import FEATURES, TARGET, order_days
 
 
@@ -16,6 +14,18 @@ def build_grid(data, account_type, content_category, traffic_source,
     media_types = sorted(data["media_type"].dropna().unique().tolist())
     days = order_days(data["day_of_week"].dropna().unique().tolist())
 
+    # Use dataset medians for engagement metrics (held constant in the grid)
+    eng_defaults = {
+        "likes": int(data["likes"].median()),
+        "comments": int(data["comments"].median()),
+        "shares": int(data["shares"].median()),
+        "saves": int(data["saves"].median()),
+        "reach": int(data["reach"].median()),
+        "impressions": int(data["impressions"].median()),
+        "engagement_rate": float(data["engagement_rate"].median()),
+        "followers_gained": int(data["followers_gained"].median()),
+    }
+
     rows = [
         {
             "account_type": account_type,
@@ -28,6 +38,7 @@ def build_grid(data, account_type, content_category, traffic_source,
             "post_hour": hour,
             "caption_length": caption_length,
             "hashtags_count": hashtags_count,
+            **eng_defaults,
         }
         for media, day, hour, cta in itertools.product(
             media_types, days, range(24), (0, 1)
