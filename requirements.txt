@@ -10,3 +10,5 @@ streamlit
 joblib
 jupyter
 ipykernel
+shap
+xgboost

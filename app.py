@@ -1,307 +1,35 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.colors import LinearSegmentedColormap
 
 from scipy import stats
 from scipy.stats import chi2_contingency, f_oneway
 
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from utils.config import (
+    CATEGORICAL_FEATURES, DATA_PATH, NUMERIC_FEATURES, TARGET,
+    hour_label, order_days,
+)
+from utils.theme import (
+    HEATMAP_CMAP, MAGENTA, VIOLET, PALETTE,
+    apply_theme, callout, chart_title, show_df, test_title,
+)
+from utils.modeling import train_model, compare_models, feature_importance
+from utils.explain import explain_prediction
+from utils.recommend import recommend_setups
+from utils.charts import (
+    comparison_chart, confusion_chart, contribution_chart,
+    day_hour_heatmap, day_hour_tables, importance_chart,
+    media_type_chart, roc_chart,
+)
 
 st.set_page_config(
     page_title="Social Media Engagement Analysis",
     page_icon="📊",
     layout="wide"
 )
-
-# ---------------------------------------------------------------------------
-# DESIGN SYSTEM (front end only: colors, fonts, chart theme, helpers)
-# ---------------------------------------------------------------------------
-INK = "#1E1B3A"
-MUTED = "#6B6785"
-LINE = "#E6E2F2"
-VIOLET = "#5B3FD9"
-MAGENTA = "#D6246E"
-ORANGE = "#FF8A3D"
-PALETTE = [VIOLET, MAGENTA, ORANGE, "#2BB3A3", "#F2B134", "#8B7CF0"]
-
-st.markdown(
-    """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=DM+Sans:wght@400;500;600&display=swap');
-
-:root {
-  --ink: #1E1B3A;
-  --muted: #6B6785;
-  --line: #E6E2F2;
-  --violet: #5B3FD9;
-  --magenta: #D6246E;
-  --orange: #FF8A3D;
-}
-
-.stApp {
-  background: #F6F4FB;
-  color: var(--ink);
-}
-.stApp, .stMarkdown, p, label, input, button, textarea, li, td, th {
-  font-family: 'DM Sans', system-ui, sans-serif;
-}
-.block-container {
-  padding-top: 1.6rem;
-  padding-bottom: 3rem;
-  max-width: 1280px;
-}
-h1, h2, h3 {
-  font-family: 'Bricolage Grotesque', 'DM Sans', sans-serif !important;
-  color: var(--ink);
-  letter-spacing: -0.02em;
-}
-h3 { font-weight: 800; }
-
-/* Hero */
-.hero {
-  background: linear-gradient(120deg, #3B2BA8 0%, #7A2FC0 38%, #D6246E 72%, #FF8A3D 100%);
-  border-radius: 28px;
-  padding: 2.8rem 3rem 2.4rem 3rem;
-  color: #fff;
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 0.6rem;
-}
-.hero::after {
-  content: "";
-  position: absolute;
-  right: -90px; top: -90px;
-  width: 340px; height: 340px;
-  border-radius: 50%;
-  border: 38px solid rgba(255,255,255,0.10);
-}
-.hero h1 {
-  font-family: 'Bricolage Grotesque', sans-serif !important;
-  font-weight: 800;
-  font-size: 3rem;
-  line-height: 1.05;
-  color: #fff !important;
-  margin: 0 0 0.8rem 0;
-  padding: 0;
-  max-width: 760px;
-}
-.hero p {
-  font-size: 1.12rem;
-  line-height: 1.55;
-  max-width: 640px;
-  color: rgba(255,255,255,0.92);
-  margin: 0 0 1.4rem 0;
-}
-.hero .chips { display: flex; gap: 0.6rem; flex-wrap: wrap; }
-.hero .chip {
-  background: rgba(255,255,255,0.16);
-  border: 1px solid rgba(255,255,255,0.35);
-  border-radius: 999px;
-  padding: 0.35rem 0.95rem;
-  font-size: 0.92rem;
-  font-weight: 500;
-}
-
-/* Metric cards */
-[data-testid="stMetric"] {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 1.1rem 1.3rem 1rem 1.3rem;
-  box-shadow: 0 6px 20px rgba(60, 40, 140, 0.06);
-  border-top: 4px solid var(--violet);
-}
-[data-testid="stColumn"]:nth-of-type(2) [data-testid="stMetric"] { border-top-color: var(--magenta); }
-[data-testid="stColumn"]:nth-of-type(3) [data-testid="stMetric"] { border-top-color: var(--orange); }
-[data-testid="stColumn"]:nth-of-type(4) [data-testid="stMetric"] { border-top-color: #2BB3A3; }
-[data-testid="stMetricLabel"] p {
-  color: var(--muted);
-  font-size: 0.95rem;
-  font-weight: 500;
-}
-[data-testid="stMetricValue"] {
-  font-family: 'Bricolage Grotesque', sans-serif;
-  font-weight: 800;
-  color: var(--ink);
-}
-
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-  gap: 0.4rem;
-  background: #fff;
-  padding: 0.4rem;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-}
-.stTabs [data-baseweb="tab"] {
-  border-radius: 12px;
-  padding: 0.6rem 1.1rem;
-  font-weight: 600;
-  color: var(--muted);
-  height: auto;
-}
-.stTabs [aria-selected="true"] {
-  background: linear-gradient(120deg, var(--violet), var(--magenta));
-  color: #fff !important;
-}
-.stTabs [data-baseweb="tab-highlight"],
-.stTabs [data-baseweb="tab-border"] { display: none; }
-
-/* Sidebar */
-[data-testid="stSidebar"] {
-  background: #fff;
-  border-right: 1px solid var(--line);
-}
-.side-title {
-  font-family: 'Bricolage Grotesque', sans-serif;
-  font-weight: 800;
-  font-size: 1.35rem;
-  color: var(--ink);
-  margin-bottom: 0.2rem;
-}
-.side-sub {
-  color: var(--muted);
-  font-size: 0.92rem;
-  margin-bottom: 1rem;
-  line-height: 1.45;
-}
-
-/* Callouts and chart titles */
-.callout {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-left: 5px solid var(--violet);
-  border-radius: 14px;
-  padding: 0.9rem 1.2rem;
-  margin: 0.4rem 0 1.2rem 0;
-  color: var(--ink);
-  line-height: 1.55;
-}
-.callout strong { display: block; margin-bottom: 0.15rem; }
-.callout span { color: var(--muted); }
-.chart-title {
-  font-family: 'Bricolage Grotesque', sans-serif;
-  font-weight: 800;
-  font-size: 1.15rem;
-  color: var(--ink);
-  margin: 0.6rem 0 0.4rem 0;
-}
-.test-title {
-  font-family: 'Bricolage Grotesque', sans-serif;
-  font-weight: 800;
-  font-size: 1.15rem;
-  margin: 0.8rem 0 0.2rem 0;
-}
-
-/* Buttons */
-.stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button {
-  background: linear-gradient(120deg, var(--violet), var(--magenta));
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  padding: 0.6rem 1.4rem;
-  font-weight: 600;
-  box-shadow: 0 6px 16px rgba(214, 36, 110, 0.25);
-}
-.stButton > button:hover, .stDownloadButton > button:hover,
-[data-testid="stFormSubmitButton"] > button:hover {
-  color: #fff;
-  filter: brightness(1.08);
-}
-.stButton > button:focus-visible, .stDownloadButton > button:focus-visible {
-  outline: 3px solid var(--orange);
-  outline-offset: 2px;
-}
-
-/* Forms, tables, alerts */
-[data-testid="stForm"] {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 1.4rem;
-  box-shadow: 0 6px 20px rgba(60, 40, 140, 0.06);
-}
-[data-testid="stDataFrame"] {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  overflow: hidden;
-}
-[data-testid="stAlert"] { border-radius: 14px; }
-hr { border-color: var(--line) !important; }
-
-@media (max-width: 760px) {
-  .hero { padding: 1.8rem 1.4rem; border-radius: 20px; }
-  .hero h1 { font-size: 2rem; }
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# Chart theme so every plot matches the page
-sns.set_theme(style="whitegrid")
-plt.rcParams.update({
-    "figure.facecolor": "#FFFFFF",
-    "axes.facecolor": "#FFFFFF",
-    "axes.edgecolor": LINE,
-    "axes.labelcolor": MUTED,
-    "axes.titlecolor": INK,
-    "axes.titleweight": "bold",
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "grid.color": "#EEEAF7",
-    "xtick.color": MUTED,
-    "ytick.color": MUTED,
-    "font.size": 10,
-})
-HEATMAP_CMAP = LinearSegmentedColormap.from_list(
-    "brand", [VIOLET, "#FFFFFF", MAGENTA]
-)
-
-
-def callout(title, body):
-    st.markdown(
-        f'<div class="callout"><strong>{title}</strong>'
-        f'<span>{body}</span></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def chart_title(text):
-    st.markdown(f'<div class="chart-title">{text}</div>', unsafe_allow_html=True)
-
-
-def test_title(text):
-    st.markdown(f'<div class="test-title">{text}</div>', unsafe_allow_html=True)
-
-
-# ---------------------------------------------------------------------------
-# APP LOGIC (unchanged)
-# ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data" / "Instagram_Analytics.csv"
-
-CATEGORICAL_FEATURES = [
-    "account_type", "media_type", "content_category",
-    "traffic_source", "day_of_week"
-]
-
-NUMERIC_FEATURES = [
-    "follower_count", "has_call_to_action", "post_hour",
-    "caption_length", "hashtags_count"
-]
-
-TARGET = "performance_bucket_label"
+apply_theme()
 
 
 @st.cache_data
@@ -312,51 +40,6 @@ def load_data():
         data["post_datetime"], errors="coerce"
     )
     return data
-
-
-@st.cache_resource
-def train_model(data):
-    features = CATEGORICAL_FEATURES + NUMERIC_FEATURES
-    model_data = data[features + [TARGET]].dropna()
-
-    X = model_data[features]
-    y = model_data[TARGET].astype(str)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.25,
-        random_state=42,
-        stratify=y
-    )
-
-    preprocessing = ColumnTransformer([
-        (
-            "categorical",
-            OneHotEncoder(handle_unknown="ignore"),
-            CATEGORICAL_FEATURES
-        ),
-        ("numeric", StandardScaler(), NUMERIC_FEATURES)
-    ])
-
-    pipeline = Pipeline([
-        ("preprocessing", preprocessing),
-        ("classifier", RandomForestClassifier(
-            n_estimators=150,
-            random_state=42,
-            class_weight="balanced"
-        ))
-    ])
-
-    pipeline.fit(X_train, y_train)
-    predictions = pipeline.predict(X_test)
-
-    accuracy = accuracy_score(y_test, predictions)
-    report = classification_report(
-        y_test, predictions, output_dict=True, zero_division=0
-    )
-
-    return pipeline, accuracy, report, len(X_train), len(X_test)
 
 
 if not DATA_PATH.exists():
@@ -392,7 +75,8 @@ st.markdown(
 <div class="chips">
 <span class="chip">📈 See what is working</span>
 <span class="chip">🧪 Test your assumptions</span>
-<span class="chip">🤖 Predict a new post</span>
+<span class="chip">🤖 Predict and explain</span>
+<span class="chip">🎯 Get a posting plan</span>
 </div>
 </div>
 """,
@@ -408,7 +92,8 @@ st.caption(
 st.sidebar.markdown(
     '<div class="side-title">🎛️ Filter the dataset</div>'
     '<div class="side-sub">Every number, chart and test on the '
-    'first four tabs updates to match your selection.</div>',
+    'analysis tabs updates to match your selection. The model tabs '
+    'always use the full dataset.</div>',
     unsafe_allow_html=True,
 )
 
@@ -464,12 +149,15 @@ col4.metric(
 
 st.write("")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab_times, tab2, tab3, tab4, tab5, tab_compare, tab_reco = st.tabs([
     "📈 Overview",
+    "🔥 Best Times",
     "🔎 Explore Data",
     "🧪 Statistical Tests",
     "🔗 Relationships",
-    "🤖 ML Prediction"
+    "🤖 ML Prediction",
+    "🏆 Model Comparison",
+    "🎯 Post Recommender"
 ])
 
 # TAB 1: Overview
@@ -526,12 +214,75 @@ with tab1:
         .mean()
         .sort_values(ascending=False)
     )
-    st.dataframe(
+    show_df(
         (media_summary * 100).round(2).rename(
             "Average engagement (%)"
-        ).to_frame(),
-        use_container_width=True
+        ).to_frame()
     )
+
+# TAB: Best times (day x hour heatmap)
+with tab_times:
+    st.subheader("When Should You Post?")
+    callout(
+        "How to read this",
+        "Each square is one day and hour. Darker, warmer squares mean "
+        "posts made at that time earned more on average. Grey squares "
+        "have too few posts to judge."
+    )
+
+    h1, h2 = st.columns(2)
+    with h1:
+        metric_choice = st.selectbox(
+            "Measure",
+            ["engagement_rate", "likes", "comments", "shares",
+             "saves", "reach", "impressions", "followers_gained"],
+            index=0
+        )
+    with h2:
+        min_posts = st.slider(
+            "Hide time slots with fewer than this many posts",
+            1, 30, 5
+        )
+
+    average_table, count_table = day_hour_tables(
+        filtered_df, metric_choice, min_posts
+    )
+
+    if average_table.notna().sum().sum() == 0:
+        st.info(
+            "No time slot has enough posts. Lower the minimum or "
+            "widen the sidebar filters."
+        )
+    else:
+        is_rate = metric_choice == "engagement_rate"
+
+        stacked = average_table.stack()
+        best_day, best_hour = stacked.idxmax()
+        best_value = stacked.max()
+        worst_day, worst_hour = stacked.idxmin()
+        overall = filtered_df[metric_choice].mean()
+
+        def fmt(value):
+            return f"{value:.2%}" if is_rate else f"{value:,.1f}"
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Best time slot", f"{best_day}, {hour_label(best_hour)}")
+        m2.metric(
+            "Average in that slot", fmt(best_value),
+            delta=f"{best_value / overall - 1:+.1%} vs overall"
+        )
+        m3.metric(
+            "Weakest time slot", f"{worst_day}, {hour_label(worst_hour)}"
+        )
+
+        fig = day_hour_heatmap(average_table, as_percent=is_rate)
+        st.pyplot(fig)
+        plt.close(fig)
+
+        st.caption(
+            "Small slots can look strong by luck. Raise the minimum post "
+            "count to see which patterns hold up."
+        )
 
 # TAB 2: Explore data
 with tab2:
@@ -555,14 +306,14 @@ with tab2:
         display_df = display_df[matching_rows]
 
     st.write(f"Showing **{len(display_df):,}** rows")
-    st.dataframe(display_df, use_container_width=True)
+    show_df(display_df)
 
     st.subheader("Descriptive Statistics")
     st.caption("Count, average, spread and range for every numeric column.")
     numeric_summary = filtered_df.select_dtypes(
         include="number"
     ).describe().T
-    st.dataframe(numeric_summary.round(3), use_container_width=True)
+    show_df(numeric_summary.round(3))
 
     st.download_button(
         "⬇️ Download filtered CSV",
@@ -606,7 +357,7 @@ with tab3:
         standard_error = stats.sem(test_data)
 
         ci = stats.t.interval(
-            confidence=confidence,
+            confidence,
             df=len(test_data) - 1,
             loc=mean_value,
             scale=standard_error
@@ -657,7 +408,7 @@ with tab3:
         chi2, p_value, dof, expected = chi2_contingency(table)
 
         st.write("Observed contingency table")
-        st.dataframe(table, use_container_width=True)
+        show_df(table)
         st.write(f"Chi-square statistic: {chi2:.4f}")
         st.write(f"Degrees of freedom: {dof}")
         st.write(f"p-value: {p_value:.6g}")
@@ -710,28 +461,22 @@ with tab4:
         "near 0 means no clear link."
     )
 
+    numeric_choices = [
+        "reach", "likes", "comments", "shares", "saves",
+        "follower_count", "engagement_rate", "impressions",
+        "followers_gained", "caption_length", "hashtags_count"
+    ]
+
     pick1, pick2 = st.columns(2)
 
     with pick1:
         x_column = st.selectbox(
-            "First numerical variable",
-            [
-                "reach", "likes", "comments", "shares", "saves",
-                "follower_count", "engagement_rate", "impressions",
-                "followers_gained", "caption_length", "hashtags_count"
-            ],
-            index=0
+            "First numerical variable", numeric_choices, index=0
         )
 
     with pick2:
         y_column = st.selectbox(
-            "Second numerical variable",
-            [
-                "reach", "likes", "comments", "shares", "saves",
-                "follower_count", "engagement_rate", "impressions",
-                "followers_gained", "caption_length", "hashtags_count"
-            ],
-            index=1
+            "Second numerical variable", numeric_choices, index=1
         )
 
     pair = filtered_df[[x_column, y_column]].dropna()
@@ -819,10 +564,19 @@ with tab5:
         )
 
         chart_title("Classification report")
-        st.dataframe(
-            pd.DataFrame(st.session_state["report"]).T.round(3),
-            use_container_width=True
+        show_df(
+            pd.DataFrame(st.session_state["report"]).T.round(3)
         )
+
+        st.divider()
+        chart_title("What the model pays attention to overall")
+        st.caption(
+            "Each bar is the share of the model's decisions that rely on "
+            "that column. Larger means more influential."
+        )
+        fig = importance_chart(feature_importance(st.session_state["model"]))
+        st.pyplot(fig)
+        plt.close(fig)
 
         st.divider()
         chart_title("Enter details for a new post")
@@ -847,7 +601,7 @@ with tab5:
                 )
                 day_of_week = st.selectbox(
                     "Day of week",
-                    sorted(df["day_of_week"].dropna().unique())
+                    order_days(df["day_of_week"].dropna().unique())
                 )
 
             with f2:
@@ -889,6 +643,234 @@ with tab5:
                 "This is a model prediction based on patterns in the "
                 "provided dataset, not a guarantee of future performance."
             )
+
+            # Explain WHY the model predicted this category
+            chart_title(f"Why the model predicted '{prediction}'")
+            st.caption(
+                "Pink bars pushed the prediction toward this category. "
+                "Violet bars pushed it away. Longer bars mean a "
+                "stronger effect."
+            )
+            try:
+                with st.spinner("Working out what drove this prediction..."):
+                    contributions = explain_prediction(
+                        st.session_state["model"], input_df, prediction
+                    )
+                fig = contribution_chart(contributions, prediction)
+                st.pyplot(fig)
+                plt.close(fig)
+            except ImportError:
+                st.info(
+                    "Install the explanation library with: pip install shap"
+                )
+            except Exception as error:
+                st.warning(f"Could not explain this prediction: {error}")
+
+# TAB: Model comparison
+with tab_compare:
+    st.subheader("Which Model Predicts Best?")
+    callout(
+        "A fair test",
+        "Several models are scored with 5-fold cross-validation, which "
+        "means each one is tested on data it has never seen, five "
+        "different ways. A baseline that always guesses the most common "
+        "category is included, because a model is only useful if it "
+        "beats that."
+    )
+
+    if st.button("Run model comparison"):
+        with st.spinner("Cross-validating models. This can take a minute..."):
+            st.session_state["comparison"] = compare_models(df)
+
+    if "comparison" not in st.session_state:
+        st.info("Click the button above to compare the models.")
+    else:
+        comparison = st.session_state["comparison"]
+        results = comparison["results"]
+        best_name = comparison["best_name"]
+        best_row = results[results["Model"] == best_name].iloc[0]
+        edge = best_row["Accuracy"] - comparison["baseline_acc"]
+
+        st.markdown(
+            f'<span class="badge">🏆 Best model: {best_name}</span>',
+            unsafe_allow_html=True
+        )
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Best accuracy", f"{best_row['Accuracy']:.2%}")
+        k2.metric("Best macro F1", f"{best_row['Macro F1']:.3f}")
+        k3.metric(
+            "Accuracy vs baseline guessing",
+            f"{edge * 100:+.1f} pts",
+        )
+
+        if edge < 0.02:
+            st.warning(
+                "The best model is barely better than always guessing the "
+                "most common category. In this dataset, the available "
+                "post details do not predict performance well."
+            )
+        else:
+            st.success(
+                f"The best model beats the baseline by {edge * 100:.1f} "
+                "percentage points, so the post details carry real signal."
+            )
+
+        left, right = st.columns([3, 2])
+        with left:
+            chart_title("Model scores")
+            fig = comparison_chart(results, best_name)
+            st.pyplot(fig)
+            plt.close(fig)
+        with right:
+            chart_title("Full results")
+            show_df(
+                results.set_index("Model").round(3)
+            )
+
+        st.caption(
+            f"Scored on {comparison['n_rows']:,} posts using "
+            f"{comparison['folds']}-fold cross-validation. Macro F1 gives "
+            "every performance category equal weight, so it is fairer "
+            "than accuracy when categories are uneven. The thin lines on "
+            "the bars show variation between folds."
+        )
+
+        st.divider()
+        c_left, c_right = st.columns(2)
+        with c_left:
+            chart_title(f"Confusion matrix: {best_name}")
+            st.caption(
+                "Rows are the real category, columns are the prediction. "
+                "A bright diagonal means correct predictions."
+            )
+            fig = confusion_chart(
+                comparison["confusion"], comparison["class_names"]
+            )
+            st.pyplot(fig)
+            plt.close(fig)
+        with c_right:
+            chart_title(f"ROC curves: {best_name}")
+            st.caption(
+                "Curves bending toward the top-left are better. "
+                "The dashed line is random guessing."
+            )
+            fig = roc_chart(comparison["roc"])
+            st.pyplot(fig)
+            plt.close(fig)
+
+# TAB: Post recommender
+with tab_reco:
+    st.subheader("Plan Your Next Post")
+    callout(
+        "How the recommendation works",
+        "Tell us about your account and post. The app tries every "
+        "combination of media type, day, hour and call-to-action, "
+        "scores each with the trained model, and shows the setups with "
+        "the highest expected engagement."
+    )
+
+    with st.form("recommend_form"):
+        r1, r2 = st.columns(2)
+        with r1:
+            r_account = st.selectbox(
+                "Account type",
+                sorted(df["account_type"].dropna().unique()),
+                key="r_account"
+            )
+            r_category = st.selectbox(
+                "Content category",
+                sorted(df["content_category"].dropna().unique()),
+                key="r_category"
+            )
+            r_traffic = st.selectbox(
+                "Traffic source",
+                sorted(df["traffic_source"].dropna().unique()),
+                key="r_traffic"
+            )
+        with r2:
+            r_followers = st.number_input(
+                "Follower count", min_value=0, value=5000, key="r_followers"
+            )
+            r_caption = st.number_input(
+                "Planned caption length", min_value=0, value=120,
+                key="r_caption"
+            )
+            r_hashtags = st.number_input(
+                "Planned number of hashtags", min_value=0, value=8,
+                key="r_hashtags"
+            )
+
+        find_plan = st.form_submit_button("Find my best posting setups")
+
+    if find_plan:
+        with st.spinner("Scoring every posting combination..."):
+            reco_model = train_model(df)[0]
+            ranked, top_class, average = recommend_setups(
+                reco_model, df, r_account, r_category, r_traffic,
+                r_followers, r_caption, r_hashtags
+            )
+        st.session_state["reco"] = (ranked, top_class, average)
+
+    if "reco" not in st.session_state:
+        st.info("Fill in the form and click the button to see your plan.")
+    else:
+        ranked, top_class, average = st.session_state["reco"]
+
+        chart_title("Your top 3 setups")
+        cards = st.columns(3)
+        for position, (_, row) in enumerate(ranked.head(3).iterrows()):
+            cta_text = "with a call-to-action" if row["has_call_to_action"] == 1 else "without a call-to-action"
+            first = " first" if position == 0 else ""
+            cards[position].markdown(
+                f'<div class="rec-card{first}">'
+                f'<div class="rec-rank">Recommendation {position + 1}</div>'
+                f'<div class="rec-title">{row["media_type"]} on {row["day_of_week"]} at {hour_label(row["post_hour"])}</div>'
+                f'<div class="rec-meta">Post {cta_text}.<br>'
+                f'Chance of landing in "{top_class}": {row["top_tier_probability"]:.0%}</div>'
+                f'<div class="rec-score">{row["expected_engagement"]:.2%}</div>'
+                f'<div class="rec-uplift">{row["uplift"]:+.1%} vs an average setup</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+        st.write("")
+        left, right = st.columns([3, 2])
+        with left:
+            chart_title("Top 10 setups")
+            table = ranked.head(10).copy()
+            table["post_hour"] = table["post_hour"].apply(hour_label)
+            table["has_call_to_action"] = table["has_call_to_action"].map(
+                {1: "Yes", 0: "No"}
+            )
+            table["expected_engagement"] = (table["expected_engagement"] * 100).round(2)
+            table["top_tier_probability"] = (table["top_tier_probability"] * 100).round(1)
+            table["uplift"] = (table["uplift"] * 100).round(1)
+            table = table[[
+                "media_type", "day_of_week", "post_hour",
+                "has_call_to_action", "expected_engagement",
+                "top_tier_probability", "uplift"
+            ]].rename(columns={
+                "media_type": "Media",
+                "day_of_week": "Day",
+                "post_hour": "Hour",
+                "has_call_to_action": "Call-to-action",
+                "expected_engagement": "Expected engagement (%)",
+                "top_tier_probability": f"Chance of '{top_class}' (%)",
+                "uplift": "vs average (%)",
+            })
+            show_df(table, hide_index=True)
+        with right:
+            chart_title("Best result for each media type")
+            fig = media_type_chart(ranked)
+            st.pyplot(fig)
+            plt.close(fig)
+
+        st.caption(
+            "Expected engagement blends the model's category probabilities "
+            "with each category's real average engagement. It ranks setups "
+            "against each other. It is not a promise of exact results."
+        )
 
 st.divider()
 st.caption("Social Media Engagement Analysis | Statistical Analysis + Machine Learning")
