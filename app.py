@@ -541,6 +541,7 @@ with tab5:
     )
 
     if st.button("Train / Load Classifier"):
+        st.cache_resource.clear()
         with st.spinner("Training the model..."):
             model, accuracy, report, train_rows, test_rows = train_model(df)
 
@@ -620,6 +621,24 @@ with tab5:
                     "Number of hashtags", min_value=0, value=8
                 )
 
+            st.markdown("**Engagement metrics**")
+            f3, f4 = st.columns(2)
+            with f3:
+                likes = st.number_input("Likes", min_value=0, value=100)
+                comments = st.number_input("Comments", min_value=0, value=10)
+                shares = st.number_input("Shares", min_value=0, value=5)
+                saves = st.number_input("Saves", min_value=0, value=5)
+            with f4:
+                reach = st.number_input("Reach", min_value=0, value=1000)
+                impressions = st.number_input("Impressions", min_value=0, value=1500)
+                engagement_rate = st.number_input(
+                    "Engagement rate", min_value=0.0, max_value=1.0,
+                    value=0.04, step=0.01, format="%.4f"
+                )
+                followers_gained = st.number_input(
+                    "Followers gained", min_value=0, value=5
+                )
+
             submitted = st.form_submit_button("Predict Performance")
 
         if submitted:
@@ -633,7 +652,15 @@ with tab5:
                 "has_call_to_action": has_cta,
                 "post_hour": post_hour,
                 "caption_length": caption_length,
-                "hashtags_count": hashtags_count
+                "hashtags_count": hashtags_count,
+                "likes": likes,
+                "comments": comments,
+                "shares": shares,
+                "saves": saves,
+                "reach": reach,
+                "impressions": impressions,
+                "engagement_rate": engagement_rate,
+                "followers_gained": followers_gained,
             }])
 
             prediction = st.session_state["model"].predict(input_df)[0]
@@ -679,6 +706,7 @@ with tab_compare:
     )
 
     if st.button("Run model comparison"):
+        st.cache_resource.clear()
         with st.spinner("Cross-validating models. This can take a minute..."):
             st.session_state["comparison"] = compare_models(df)
 

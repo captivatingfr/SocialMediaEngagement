@@ -10,7 +10,9 @@ CATEGORICAL_FEATURES = [
 
 NUMERIC_FEATURES = [
     "follower_count", "has_call_to_action", "post_hour",
-    "caption_length", "hashtags_count"
+    "caption_length", "hashtags_count",
+    "likes", "comments", "shares", "saves",
+    "reach", "impressions", "engagement_rate", "followers_gained"
 ]
 
 FEATURES = CATEGORICAL_FEATURES + NUMERIC_FEATURES
